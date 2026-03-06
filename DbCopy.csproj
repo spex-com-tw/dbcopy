@@ -6,6 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <Deterministic>false</Deterministic>
+    <AssemblyVersion>1.0.0.*</AssemblyVersion>
+    <FileVersion>1.0.0.*</FileVersion>
+    <NoWarn>$(NoWarn);CS7035</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

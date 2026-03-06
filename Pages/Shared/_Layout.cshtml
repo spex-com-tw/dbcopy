@@ -1,4 +1,11 @@
-﻿<!DOCTYPE html>
+﻿@using System.Reflection
+@{
+    var appVersion = Assembly.GetEntryAssembly()?.GetName().Version;
+    var versionText = appVersion == null
+        ? "vunknown"
+        : $"v{appVersion.Major}.{appVersion.Minor}.{appVersion.Build}.{appVersion.Revision}";
+}
+<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="utf-8" />
@@ -20,6 +27,7 @@
                 <a class="navbar-brand fw-bold text-primary" asp-area="" asp-page="/Index">
                     <i class="bi bi-database-fill-gear me-2"></i>資料庫同步工具
                 </a>
+                <span class="badge text-bg-light border text-secondary">@versionText</span>
             </div>
         </nav>
     </header>
