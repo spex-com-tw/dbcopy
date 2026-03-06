@@ -1,0 +1,14 @@
+# Build artifacts
+bin/
+obj/
+publish/
+
+# IDE/editor
+.vs/
+.idea/
+
+# OS metadata
+.DS_Store
+
+# User-specific files
+*.user

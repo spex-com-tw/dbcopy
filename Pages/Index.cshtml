@@ -1,0 +1,1123 @@
+﻿@page
+@{
+    ViewData["Title"] = "資料庫同步工具";
+}
+
+<div class="container-fluid py-4">
+    <!-- Main Toolbar -->
+    <div class="card mb-4 toolbar-card">
+        <div class="card-body">
+            <div class="row align-items-center g-3">
+                <div class="col-auto">
+                    <button id="manageConnBtn" class="btn btn-outline-secondary btn-sm px-3 rounded-pill" data-bs-toggle="modal" data-bs-target="#manageConnectionsModal">
+                        <i class="bi bi-gear-fill me-1"></i> 管理連線
+                    </button>
+                </div>
+                <div class="col-md-3">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">來源</span>
+                        <select id="sourceConnSelect" class="form-select"></select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">目的地</span>
+                        <select id="targetConnSelect" class="form-select"></select>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">批次</span>
+                        <input type="number" id="batchSizeInput" class="form-control" value="1000" min="1" step="500">
+                    </div>
+                </div>
+                <div class="col-auto ms-auto">
+                    <button id="compareBtn" class="btn btn-primary btn-sm px-4 fw-bold rounded-pill">
+                        <i class="bi bi-search me-1"></i> 分析與比較
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <!-- Filter Bar -->
+            <div class="d-flex flex-wrap align-items-center mb-3 gap-2">
+                <div class="btn-group btn-group-sm shadow-sm">
+                    <button type="button" class="btn btn-light border" disabled><i class="bi bi-filter me-1"></i> 過濾</button>
+                    <select id="filterObjectType" class="form-select form-select-sm border-start-0 rounded-0" style="width: auto;">
+                        <option value="">所有類型</option>
+                        <option value="0">Type</option>
+                        <option value="1">Table Type</option>
+                        <option value="2">Table</option>
+                        <option value="3">View</option>
+                        <option value="4">Procedure</option>
+                        <option value="5">Function</option>
+                    </select>
+                    <select id="filterTargetStatus" class="form-select form-select-sm border-start-0 rounded-0" style="width: auto;">
+                        <option value="">所有目的狀態</option>
+                        <option value="missing">不存在 (Missing)</option>
+                        <option value="exists">已存在 (Exists)</option>
+                    </select>
+                    <select id="filterSyncStatus" class="form-select form-select-sm border-start-0 rounded-0" style="width: auto;">
+                        <option value="">所有同步狀態</option>
+                        <option value="Pending">準備就緒</option>
+                        <option value="Exists">不同步</option>
+                        <option value="Success">成功</option>
+                        <option value="Error">錯誤</option>
+                    </select>
+                </div>
+
+                <div class="ms-auto">
+                    <button id="syncSelectedBtn" class="btn btn-warning btn-sm fw-bold px-4 rounded-pill shadow-sm" disabled>
+                        <i class="bi bi-arrow-repeat me-1"></i> 同步選取項目
+                    </button>
+                    <button id="stopSyncBtn" class="btn btn-danger btn-sm fw-bold px-4 rounded-pill shadow-sm d-none">
+                        <i class="bi bi-stop-circle me-1"></i> 中斷
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats Bar -->
+            <div id="statsBar" class="d-none d-flex align-items-center mb-2 gap-3 px-1" style="font-size: 0.8rem; color: var(--db-gray-500);">
+                <span><i class="bi bi-list-ul me-1"></i> 共 <strong id="statTotal" class="text-dark">0</strong> 個物件</span>
+                <span class="text-muted">|</span>
+                <span><i class="bi bi-funnel me-1"></i> 篩選 <strong id="statFiltered" class="text-dark">0</strong> 個</span>
+                <span class="text-muted">|</span>
+                <span><i class="bi bi-check2-square me-1"></i> 已選 <strong id="statSelected" class="text-primary">0</strong> 個</span>
+            </div>
+
+            <!-- Sync Progress Bar — visible only during and after a sync run -->
+            <div id="syncProgressWrapper" class="d-none mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-1"
+                     style="font-size:0.8rem;">
+                    <span class="text-muted"><i class="bi bi-arrow-repeat me-1"></i> 同步進度</span>
+                    <span id="syncProgressText" class="fw-bold text-primary">0 / 0 個物件</span>
+                </div>
+                <div class="progress rounded-pill" style="height:8px;">
+                    <div id="syncProgressBar"
+                         class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                         role="progressbar" style="width:0%"
+                         aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+            </div>
+
+            <!-- Sync result banner — shown after each sync run, hidden on next compare/sync -->
+            <div id="syncResultBanner" class="d-none alert alert-dismissible fade show mb-3" role="alert">
+                <span id="syncResultText"></span>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+
+            <!-- Table Card -->
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="max-height: calc(100vh - 310px); overflow-y: auto;">
+                        <table class="table table-hover mb-0 align-middle" id="syncTable">
+                            <thead class="sticky-top">
+                                <tr>
+                                    <th style="width: 40px;"></th>
+                                    <th style="width: 50px;" class="text-center"><input type="checkbox" id="selectAll" class="form-check-input"></th>
+                                    <th>物件名稱</th>
+                                    <th>物件類型</th>
+                                    <th>目的狀態</th>
+                                    <th>同步狀態</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Sync items will be loaded here as a tree grid -->
+                                <tr id="placeholderRow">
+                                    <td colspan="6" class="p-5 text-center text-muted italic">
+                                        <i class="bi bi-info-circle me-2"></i> 請選擇連線並點擊「分析與比較」以載入物件。
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Error Message Modal -->
+<div class="modal fade" id="errorModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill me-2"></i> 同步錯誤詳情</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2 fw-bold">物件: <span id="errorObjectName" class="text-primary"></span></div>
+                <div class="p-3 bg-light border rounded">
+                    <pre id="errorText" class="mb-0" style="white-space: pre-wrap; word-break: break-all;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary rounded-pill" data-bs-dismiss="modal">關閉</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Manage Connections Modal -->
+<div class="modal fade" id="manageConnectionsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">管理連線</h5>
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill" onclick="exportConnections()">
+                        <i class="bi bi-download me-1"></i> 匯出
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill" onclick="document.getElementById('importConnectionsInput').click()">
+                        <i class="bi bi-upload me-1"></i> 匯入
+                    </button>
+                    <input type="file" id="importConnectionsInput" accept="application/json" class="d-none" />
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="connectionList" class="mb-3">
+                    <!-- Connections will be listed here -->
+                </div>
+                <div class="text-center">
+                    <button class="btn btn-primary px-4 rounded-pill" onclick="openAddConnectionModal()">+ 新增連線</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Connection Edit Modal (Add/Edit) -->
+<div class="modal fade" id="connectionEditModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="connModalTitle">資料庫連線</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editConnId">
+                <div class="mb-3">
+                    <label class="form-label">名稱 (例如: 本地開發 SQL)</label>
+                    <input type="text" id="editConnName" class="form-control">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">資料庫類型</label>
+                    <select id="editConnType" class="form-select">
+                        <option value="0">Microsoft SQL Server</option>
+                        <option value="1">PostgreSQL</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">連線字串</label>
+                    <textarea id="editConnString" class="form-control" rows="4"></textarea>
+                    <div class="mt-2 text-muted" style="font-size: 0.8rem;">
+                        <div class="mb-1"><strong>SQL Server:</strong> Server=localhost;Database=Db;Trusted_Connection=True;TrustServerCertificate=True;</div>
+                        <div><strong>PostgreSQL:</strong> Host=localhost;Username=postgres;Password=pwd;Database=Db;</div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input type="checkbox" id="editConnReadOnly" class="form-check-input">
+                        <label class="form-check-label" for="editConnReadOnly">
+                            <strong>唯讀連線</strong> <span class="text-muted small">(唯讀連線無法作為目的資料庫)</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div id="testStatus" class="me-auto small"></div>
+                <button type="button" id="testConnBtn" class="btn btn-outline-info rounded-pill">測試連線</button>
+                <button type="button" class="btn btn-secondary rounded-pill" data-bs-dismiss="modal">取消</button>
+                <button type="button" id="saveConnBtn" class="btn btn-primary rounded-pill">儲存連線</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Confirm Modal -->
+<div class="modal fade" id="confirmModal" tabindex="-1"
+     data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content border-0 shadow-lg rounded-3">
+            <div class="modal-header border-0 pb-1">
+                <h6 class="modal-title fw-bold" id="confirmModalTitle"></h6>
+            </div>
+            <div class="modal-body pt-1 pb-2">
+                <p id="confirmModalMessage" class="mb-0 text-muted" style="font-size:0.9rem;"></p>
+            </div>
+            <div class="modal-footer border-0 pt-0 gap-2">
+                <button type="button" id="confirmModalCancelBtn"
+                        class="btn btn-light btn-sm rounded-pill px-3">取消</button>
+                <button type="button" id="confirmModalConfirmBtn"
+                        class="btn btn-sm rounded-pill px-3">確定</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    let connections = [];
+    let syncItems = [];
+    let isSyncing = false;
+    let stopRequested = false;
+
+    // Load connections from local storage
+    function loadConnections() {
+        const stored = localStorage.getItem('dbConnections');
+        if (!stored) {
+            connections = [];
+            renderConnectionsUI();
+            return;
+        }
+
+        try {
+            const data = JSON.parse(stored);
+            
+            // Migration logic: check if data is encrypted or plain
+            // If any connection has an encrypted-looking string and we have a stored password, try to decrypt it.
+            let masterPassword = localStorage.getItem('dbMasterPassword');
+            
+            if (masterPassword && data.length > 0 && data[0].connectionString.length > 50) {
+                 try {
+                    connections = data.map(c => {
+                        try {
+                            const bytes = CryptoJS.AES.decrypt(c.connectionString, masterPassword);
+                            const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+                            return decrypted ? { ...c, connectionString: decrypted } : c;
+                        } catch (e) { return c; }
+                    });
+                    // If migration succeeded, save as plain text and remove password
+                    localStorage.setItem('dbConnections', JSON.stringify(connections));
+                    localStorage.removeItem('dbMasterPassword');
+                 } catch (e) {
+                     connections = data;
+                 }
+            } else {
+                connections = data;
+            }
+            
+            renderConnectionsUI();
+        } catch (err) {
+            console.error("Failed to load connections:", err);
+            connections = [];
+            renderConnectionsUI();
+        }
+    }
+
+    function saveConnectionsToLocal() {
+        localStorage.setItem('dbConnections', JSON.stringify(connections));
+        renderConnectionsUI();
+    }
+
+    // Export connections to a JSON file
+    function exportConnections() {
+        try {
+            const data = JSON.stringify(connections, null, 2);
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const d = new Date();
+            const pad = (n) => n.toString().padStart(2, '0');
+            const fileName = `db-connections-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}.json`;
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert('匯出失敗：' + e.message);
+        }
+    }
+
+    // Handle import file selection and merge/replace logic
+    function handleImportConnectionsFile(evt) {
+        const file = evt.target.files && evt.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const text = e.target.result;
+                const imported = JSON.parse(text);
+                if (!Array.isArray(imported)) throw new Error('檔案內容必須為連線清單陣列');
+
+                // Build map by (type|name) to merge duplicates sensibly across machines
+                const keyOf = (c) => `${(typeof c.type === 'number' ? c.type : parseInt(c.type || '0'))}|${(c.name || '').trim()}`;
+                const map = new Map(connections.map(c => [keyOf(c), c]));
+
+                let added = 0, updated = 0, skipped = 0;
+                imported.forEach(c => {
+                    if (!c || !c.name || !c.connectionString) { skipped++; return; }
+                    const normalized = {
+                        id: c.id && typeof c.id === 'string' ? c.id : ('conn_' + Date.now().toString() + Math.random().toString(36).slice(2, 8)),
+                        name: String(c.name).trim(),
+                        type: (typeof c.type === 'number') ? c.type : (parseInt(c.type) || 0),
+                        connectionString: String(c.connectionString),
+                        readOnly: c.readOnly === true
+                    };
+                    const key = keyOf(normalized);
+                    if (map.has(key)) {
+                        const existing = map.get(key);
+                        existing.connectionString = normalized.connectionString;
+                        existing.type = normalized.type;
+                        existing.readOnly = normalized.readOnly;
+                        updated++;
+                    } else {
+                        connections.push(normalized);
+                        map.set(key, normalized);
+                        added++;
+                    }
+                });
+
+                saveConnectionsToLocal();
+                renderConnectionsUI();
+                alert(`匯入完成：新增 ${added} 筆，更新 ${updated} 筆。` + (skipped ? ` 無效/略過 ${skipped} 筆。` : ''));
+            } catch (err) {
+                alert('匯入失敗：' + err.message);
+            } finally {
+                // reset input so the same file can be selected again later
+                evt.target.value = '';
+            }
+        };
+        reader.onerror = function() {
+            alert('讀取檔案失敗');
+            evt.target.value = '';
+        };
+        reader.readAsText(file, 'utf-8');
+    }
+
+    function renderConnectionsUI() {
+        const list = $('#connectionList');
+        const sourceSelect = $('#sourceConnSelect');
+        const targetSelect = $('#targetConnSelect');
+        
+        const currentSource = sourceSelect.val();
+        const currentTarget = targetSelect.val();
+
+        list.empty();
+        sourceSelect.empty().append('<option value="">-- 選擇來源 --</option>');
+        targetSelect.empty().append('<option value="">-- 選擇目的地 --</option>');
+
+        if (connections.length === 0) {
+            list.append('<div class="small text-muted text-center py-2">尚未定義任何連線。</div>');
+        }
+
+        connections.forEach(conn => {
+            const typeLabel = conn.type == 0 ? 'MSSQL' : 'PG';
+            const colorClass = conn.type == 0 ? 'bg-info text-dark' : 'bg-success text-white';
+            const readOnlyBadge = conn.readOnly ? '<span class="badge bg-warning text-dark ms-2"><i class="bi bi-lock-fill me-1"></i>唯讀</span>' : '';
+
+            list.append(`
+                <div class="d-flex justify-content-between align-items-center mb-3 border p-3 rounded-3 bg-white shadow-sm">
+                    <div class="overflow-hidden me-2">
+                        <div class="d-flex align-items-center mb-1">
+                            <span class="badge ${colorClass} me-2">${typeLabel}</span>
+                            <strong class="text-dark" title="${conn.name}">${conn.name}</strong>
+                            ${readOnlyBadge}
+                        </div>
+                        <div class="text-muted small text-truncate" style="max-width: 500px;">
+                            ${conn.connectionString}
+                        </div>
+                    </div>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-outline-primary btn-sm rounded-pill" onclick="openEditConnectionModal('${conn.id}')"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-outline-danger btn-sm rounded-pill" onclick="deleteConnection('${conn.id}')"><i class="bi bi-trash"></i></button>
+                    </div>
+                </div>
+            `);
+
+            // Source Select (exclude current Target)
+            if (conn.id !== currentTarget) {
+                const readOnlyLabel = conn.readOnly ? ' [唯讀]' : '';
+                sourceSelect.append(`<option value="${conn.id}" ${conn.id === currentSource ? 'selected' : ''}>${conn.name} (${typeLabel})${readOnlyLabel}</option>`);
+            }
+            
+            // Target Select (exclude current Source and read-only connections)
+            if (conn.id !== currentSource && !conn.readOnly) {
+                targetSelect.append(`<option value="${conn.id}" ${conn.id === currentTarget ? 'selected' : ''}>${conn.name} (${typeLabel})</option>`);
+            }
+        });
+    }
+
+    $('#sourceConnSelect, #targetConnSelect').change(function() {
+        renderConnectionsUI();
+    });
+
+    function openAddConnectionModal() {
+        $('#connModalTitle').text('新增資料庫連線');
+        $('#editConnId').val('');
+        $('#editConnName').val('');
+        $('#editConnType').val('0');
+        $('#editConnString').val('');
+        $('#editConnReadOnly').prop('checked', false);
+        $('#testStatus').empty();
+        $('#connectionEditModal').modal('show');
+    }
+
+    function openEditConnectionModal(id) {
+        const conn = connections.find(c => c.id === id);
+        if (!conn) return;
+
+        $('#connModalTitle').text('編輯資料庫連線');
+        $('#editConnId').val(conn.id);
+        $('#editConnName').val(conn.name);
+        $('#editConnType').val(conn.type);
+        $('#editConnString').val(conn.connectionString);
+        $('#editConnReadOnly').prop('checked', conn.readOnly || false);
+        $('#testStatus').empty();
+        $('#connectionEditModal').modal('show');
+    }
+
+    async function deleteConnection(id) {
+        if (!await showConfirm('刪除連線', '確定要刪除此連線？', '刪除', 'btn-danger')) return;
+        connections = connections.filter(c => c.id !== id);
+        saveConnectionsToLocal();
+    }
+
+    $('#testConnBtn').click(async function() {
+        const connData = {
+            type: parseInt($('#editConnType').val()),
+            connectionString: $('#editConnString').val().trim()
+        };
+
+        if (!connData.connectionString) {
+            alert('請輸入連線字串');
+            return;
+        }
+
+        $('#testConnBtn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 測試中...');
+        $('#testStatus').html('<span class="text-muted">連線中...</span>');
+
+        try {
+            const response = await fetch('/api/db/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(connData)
+            });
+
+            if (response.ok) {
+                $('#testStatus').html('<span class="text-success fw-bold"><i class="bi bi-check-circle-fill"></i> 連線成功!</span>');
+            } else {
+                const error = await response.text();
+                $('#testStatus').html(`<span class="text-danger fw-bold" title="${error}"><i class="bi bi-x-circle-fill"></i> 失敗</span>`);
+                alert('連線失敗: ' + error);
+            }
+        } catch (err) {
+            $('#testStatus').html('<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill"></i> 網路錯誤</span>');
+            alert('錯誤: ' + err.message);
+        } finally {
+            $('#testConnBtn').prop('disabled', false).text('測試連線');
+        }
+    });
+
+    $('#saveConnBtn').click(function() {
+        const id = $('#editConnId').val();
+        const connData = {
+            name: $('#editConnName').val().trim(),
+            type: parseInt($('#editConnType').val()),
+            connectionString: $('#editConnString').val().trim(),
+            readOnly: $('#editConnReadOnly').is(':checked')
+        };
+
+        if (!connData.name || !connData.connectionString) {
+            alert('名稱和連線字串為必填');
+            return;
+        }
+
+        if (id) {
+            // Update
+            const index = connections.findIndex(c => c.id === id);
+            if (index !== -1) {
+                connections[index] = { ...connections[index], ...connData };
+            }
+        } else {
+            // Create
+            const newConn = {
+                id: 'conn_' + Date.now().toString(),
+                ...connData
+            };
+            connections.push(newConn);
+        }
+        
+        saveConnectionsToLocal();
+        $('#connectionEditModal').modal('hide');
+    });
+
+    $('#compareBtn').click(async function() {
+        const sourceId = $('#sourceConnSelect').val();
+        const targetId = $('#targetConnSelect').val();
+        
+        if (!sourceId || !targetId) {
+            alert('請選擇來源與目的連線。');
+            return;
+        }
+        
+        const source = connections.find(c => c.id === sourceId);
+        const target = connections.find(c => c.id === targetId);
+        
+        if (source.type !== target.type) {
+            alert('來源與目的資料庫類型必須相同。');
+            return;
+        }
+
+        $('#syncResultBanner').addClass('d-none');   // hide previous sync result
+        $('#syncProgressWrapper').addClass('d-none');
+        $('#compareBtn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 分析中...');
+        $('#syncTable tbody').empty().append('<tr><td colspan="6" class="p-5 text-center"><div class="spinner-border text-primary"></div> 正在分析來源與目的資料庫...</td></tr>');
+        $('#syncSelectedBtn').prop('disabled', true);
+
+        try {
+            const response = await fetch('/api/db/compare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source, target })
+            });
+            
+            if (!response.ok) throw new Error(await response.text());
+            
+            syncItems = await response.json();
+            renderMatrixUI();
+            $('#syncSelectedBtn').prop('disabled', syncItems.length === 0);
+        } catch (err) {
+            alert('操作失敗: ' + err.message);
+            $('#syncTable tbody').empty().append(`<tr><td colspan="6" class="p-5 text-center text-danger">連線或讀取資料失敗: ${err.message}</td></tr>`);
+        } finally {
+            $('#compareBtn').prop('disabled', false).html('<i class="bi bi-search me-1"></i> 分析與比較');
+        }
+    });
+
+    function showSyncResultBanner(type, html) {
+        const $banner = $('#syncResultBanner');
+        $banner.removeClass('alert-success alert-warning alert-danger alert-info')
+               .addClass('alert-' + type);
+        $('#syncResultText').html(html);
+        $banner.addClass('show').removeClass('d-none');
+        $banner[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function showConfirm(title, message, confirmText, confirmClass) {
+        confirmText  = confirmText  || '確定';
+        confirmClass = confirmClass || 'btn-primary';
+        return new Promise(function(resolve) {
+            var resolved = false;
+            function done(result) {
+                if (!resolved) { resolved = true; resolve(result); }
+            }
+
+            $('#confirmModalTitle').text(title);
+            $('#confirmModalMessage').text(message);
+            $('#confirmModalConfirmBtn')
+                .attr('class', 'btn btn-sm rounded-pill px-3 ' + confirmClass)
+                .text(confirmText);
+
+            var modalEl = document.getElementById('confirmModal');
+            var modal   = bootstrap.Modal.getOrCreateInstance(modalEl, { backdrop: 'static', keyboard: false });
+
+            $('#confirmModalConfirmBtn').off('click.confirm').on('click.confirm', function() {
+                modal.hide(); done(true);
+            });
+            $('#confirmModalCancelBtn').off('click.confirm').on('click.confirm', function() {
+                modal.hide(); done(false);
+            });
+            $(modalEl).off('hidden.bs.modal.confirm').on('hidden.bs.modal.confirm', function() {
+                done(false);
+            });
+
+            modal.show();
+        });
+    }
+
+    function updateSyncProgress(completed, total) {
+        var pct = total > 0 ? Math.round(completed / total * 100) : 0;
+        $('#syncProgressBar').css('width', pct + '%').attr('aria-valuenow', pct);
+        $('#syncProgressText').text(pct + '%');
+    }
+
+    function showErrorMessage(index) {
+        const item = syncItems[index];
+        if (!item) return;
+        // Align with DbObjectType enum: 0:UserDefinedType, 1:UserDefinedTableType, 2:Sequence, 3:Table, 4:View, 5:Procedure, 6:Function
+        const typeLabels = ['Type', 'Table Type', 'Sequence', 'Table', 'View', 'Procedure', 'Function'];
+        $('#errorObjectName').text(`${item.sourceObject.schema}.${item.sourceObject.name} (${typeLabels[item.sourceObject.type]})`);
+        $('#errorText').text(item.message || '無可用的錯誤訊息。');
+        $('#errorModal').modal('show');
+    }
+
+    function renderMatrixUI() {
+        const tbody = $('#syncTable tbody');
+        tbody.empty();
+        
+        if (syncItems.length === 0) {
+            tbody.append('<tr><td colspan="6" class="p-5 text-center text-muted">來源資料庫中找不到任何物件。</td></tr>');
+            return;
+        }
+
+        // Align with DbObjectType enum: 0:UserDefinedType, 1:UserDefinedTableType, 2:Sequence, 3:Table, 4:View, 5:Procedure, 6:Function
+        const typeLabels = ['Types', 'Table Types', 'Sequences', 'Tables', 'Views', 'Procedures', 'Functions'];
+        const typeObjLabels = ['Type', 'Table Type', 'Sequence', 'Table', 'View', 'Procedure', 'Function'];
+        const typeIcons = ['bi-box', 'bi-table', 'bi-diagram-3', 'bi-table', 'bi-view-stacked', 'bi-gear-wide-connected', 'bi-braces'];
+        const typeColors = ['text-info', 'text-info', 'text-warning', 'text-primary', 'text-success', 'text-indigo', 'text-pink'];
+        // Reuse 'badge-table' style for Sequences to avoid missing CSS class
+        const typeBadgeClasses = ['badge-table', 'badge-table', 'badge-table', 'badge-table', 'badge-view', 'badge-procedure', 'badge-function'];
+
+        const filterType = $('#filterObjectType').val();
+        const filterStatus = $('#filterTargetStatus').val();
+        const filterSync = $('#filterSyncStatus').val();
+
+        // Group by Schema
+        const schemaGroups = {};
+        let filteredCount = 0;
+        
+        syncItems.forEach((item, index) => {
+            // Apply Filters
+            if (filterType !== "" && item.sourceObject.type.toString() !== filterType) return;
+            if (filterStatus === "exists" && !item.existsInDestination) return;
+            if (filterStatus === "missing" && item.existsInDestination) return;
+            if (filterSync !== "" && item.status !== filterSync) return;
+
+            filteredCount++;
+            const schema = item.sourceObject.schema;
+            if (!schemaGroups[schema]) schemaGroups[schema] = {};
+            
+            const type = item.sourceObject.type;
+            if (!schemaGroups[schema][type]) schemaGroups[schema][type] = [];
+            
+            schemaGroups[schema][type].push({ ...item, originalIndex: index });
+        });
+
+        // Update stats bar
+        $('#statTotal').text(syncItems.length);
+        $('#statFiltered').text(filteredCount);
+        $('#statSelected').text(0);
+        if (syncItems.length > 0) $('#statsBar').removeClass('d-none'); else $('#statsBar').addClass('d-none');
+
+        if (filteredCount === 0) {
+            tbody.append('<tr><td colspan="6" class="p-5 text-center text-muted">符合篩選條件的物件為零。</td></tr>');
+            return;
+        }
+
+        Object.keys(schemaGroups).sort().forEach(schema => {
+            const schemaId = `schema-${schema.replace(/[^a-z0-9]/gi, '_')}`;
+            
+            // Schema Row
+            tbody.append(`
+                <tr class="table-secondary fw-bold schema-row" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target=".${schemaId}">
+                    <td class="text-center">
+                        <i class="bi bi-chevron-down"></i>
+                    </td>
+                    <td class="text-center">
+                        <input type="checkbox" class="schema-check form-check-input" data-schema="${schema}">
+                    </td>
+                    <td colspan="4">
+                        <i class="bi bi-database-fill me-2 text-dark"></i> ${schema}
+                    </td>
+                </tr>
+            `);
+
+            Object.keys(schemaGroups[schema]).sort().forEach(type => {
+                const typeInt = parseInt(type);
+                const typeId = `${schemaId}-type-${type}`;
+                const items = schemaGroups[schema][type];
+                
+                // Type Row
+                tbody.append(`
+                    <tr class="collapse show ${schemaId} table-light fw-bold type-row" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target=".${typeId}">
+                        <td class="text-center ps-3">
+                            <i class="bi bi-chevron-down"></i>
+                        </td>
+                        <td class="text-center">
+                            <input type="checkbox" class="type-check form-check-input" data-schema="${schema}" data-type="${type}">
+                        </td>
+                        <td colspan="4" class="ps-3">
+                            <i class="bi ${typeIcons[typeInt]} me-2 ${typeColors[typeInt]}"></i> ${typeLabels[typeInt]} <span class="badge bg-secondary-subtle text-secondary rounded-pill ms-1">${items.length}</span>
+                        </td>
+                    </tr>
+                `);
+
+                // Object Rows
+                items.forEach(item => {
+                    const index = item.originalIndex;
+                    const canCopy = !item.existsInDestination;
+                    let sourceCountBadge = "";
+                    let targetCountDisplay = "";
+                    if (item.sourceObject.type === 3) { // Table
+                        const srcCount = item.sourceRowCount !== null ? item.sourceRowCount : '?';
+                        const tgtCount = item.targetRowCount !== null ? item.targetRowCount : (item.existsInDestination ? '?' : '0');
+                        sourceCountBadge = `<span class="badge bg-secondary-subtle text-secondary border ms-2" style="font-weight: normal;">${srcCount}</span>`;
+                        
+                        // "不同步" 就不顯示目的筆數。目的筆數 在同步過後才顯示。不要換行
+                        if (item.status === 'Success') {
+                            targetCountDisplay = `<span class="ms-2 smaller text-muted">(目的: ${tgtCount})</span>`;
+                        }
+                    }
+                    
+                    tbody.append(`
+                        <tr id="sync-row-${index}" class="collapse show ${schemaId} ${typeId} object-row">
+                            <td></td>
+                            <td class="text-center">
+                                <input type="checkbox" class="sync-check form-check-input" 
+                                    data-index="${index}" 
+                                    data-schema="${schema}" 
+                                    data-type="${type}"
+                                    ${canCopy ? '' : 'disabled'}>
+                            </td>
+                            <td class="ps-4">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-dot me-1 text-muted"></i>
+                                    <span class="fw-semibold text-dark">${item.sourceObject.name}</span>
+                                    ${sourceCountBadge}
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge ${typeBadgeClasses[item.sourceObject.type]} rounded-pill">${typeObjLabels[item.sourceObject.type]}</span>
+                            </td>
+                            <td>
+                                ${item.existsInDestination 
+                                    ? '<span class="badge badge-outline-warning rounded-pill px-3"><i class="bi bi-exclamation-triangle me-1"></i> 已存在</span>' 
+                                    : '<span class="badge badge-outline-success rounded-pill px-3"><i class="bi bi-plus-circle me-1"></i> 不存在</span>'}
+                            </td>
+                            <td class="status-cell">
+                                ${item.status === 'Pending' ? '<span class="badge badge-outline-secondary rounded-pill px-3"><i class="bi bi-clock me-1"></i> 準備就緒</span>' :
+                                  (item.status === 'Exists' ? '<span class="badge badge-outline-warning rounded-pill px-3"><i class="bi bi-arrow-left-right me-1"></i> 不同步</span>' :
+                                  (item.status === 'Success' ? `<span class="text-success fw-medium small"><i class="bi bi-check-circle-fill me-1"></i> 成功</span>${targetCountDisplay}` :
+                                  '<span class="text-danger fw-medium small"><i class="bi bi-x-circle-fill me-1"></i> 錯誤</span>'))}
+                            </td>
+                        </tr>
+                    `);
+
+                    // Index Rows
+                    if (item.sourceObject.indexes && item.sourceObject.indexes.length > 0) {
+                        item.sourceObject.indexes.forEach(idx => {
+                            tbody.append(`
+                                <tr class="collapse show ${schemaId} ${typeId} index-row border-0" data-table-idx="${index}" style="font-size: 0.8rem;">
+                                    <td></td>
+                                    <td></td>
+                                    <td class="ps-5 text-muted">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-arrow-return-right me-2 opacity-50"></i>
+                                            <i class="bi bi-key-fill me-1 text-secondary"></i>
+                                            <span class="text-secondary">${idx.name}</span>
+                                            <span class="ms-2 opacity-75">(${idx.columns})${idx.isUnique ? ' [Unique]' : ''}</span>
+                                        </div>
+                                    </td>
+                                    <td><span class="badge badge-outline-secondary rounded-pill" style="font-size: 0.7rem;">Index</span></td>
+                                    <td>
+                                        ${idx.existsInDestination 
+                                            ? '<span class="text-success small"><i class="bi bi-check me-1"></i>已同步</span>' 
+                                            : '<span class="text-muted small"><i class="bi bi-dash me-1"></i>未同步</span>'}
+                                    </td>
+                                    <td></td>
+                                </tr>
+                            `);
+                        });
+                    }
+                });
+            });
+        });
+
+        setupTreeEvents();
+
+        // Update selected count when checkboxes change
+        tbody.on('change', '.sync-check', function() {
+            $('#statSelected').text($('.sync-check:checked').length);
+        });
+    }
+
+    function setupTreeEvents() {
+        // Handle Schema Checkbox
+        $('.schema-check').change(function() {
+            const schema = $(this).data('schema');
+            const isChecked = $(this).is(':checked');
+            $(`.type-check[data-schema="${schema}"]`).prop('checked', isChecked).trigger('change');
+        });
+
+        // Handle Type Checkbox
+        $('.type-check').change(function() {
+            const schema = $(this).data('schema');
+            const type = $(this).data('type');
+            const isChecked = $(this).is(':checked');
+            $(`.sync-check:not(:disabled)[data-schema="${schema}"][data-type="${type}"]`).prop('checked', isChecked);
+        });
+
+        // Toggle Chevron icons
+        $('.schema-row, .type-row').on('click', function(e) {
+            if ($(e.target).is('input')) return;
+            const icon = $(this).find('td:first-child i.bi');
+            icon.toggleClass('bi-chevron-down bi-chevron-right');
+        });
+    }
+
+    $('#selectAll').change(function() {
+        const isChecked = this.checked;
+        $('.schema-check, .type-check, .sync-check:not(:disabled)').prop('checked', isChecked);
+        $('#statSelected').text(isChecked ? $('.sync-check:not(:disabled)').length : 0);
+    });
+
+
+    $('#stopSyncBtn').click(function() {
+        if (isSyncing) {
+            stopRequested = true;
+            $(this).prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> 中斷中...');
+        }
+    });
+
+    $('#syncSelectedBtn').click(async function() {
+        const sourceId = $('#sourceConnSelect').val();
+        const targetId = $('#targetConnSelect').val();
+        const batchSize = parseInt($('#batchSizeInput').val()) || 1000;
+        const source = connections.find(c => c.id === sourceId);
+        const target = connections.find(c => c.id === targetId);
+
+        let selectedIndices = $('.sync-check:checked').map(function() {
+            return $(this).data('index');
+        }).get();
+
+        if (selectedIndices.length === 0) {
+            alert('請至少選擇一個物件進行同步。');
+            return;
+        }
+
+        const ok = await showConfirm(
+            '確認同步',
+            `確定要將 ${selectedIndices.length} 個物件從「${source.name}」複製到「${target.name}」？`,
+            '開始同步', 'btn-warning'
+        );
+        if (!ok) return;
+        
+        isSyncing = true;
+        stopRequested = false;
+        $('#syncSelectedBtn').prop('disabled', true).addClass('d-none');
+        $('#stopSyncBtn').removeClass('d-none').prop('disabled', false).html('<i class="bi bi-stop-circle me-1"></i> 中斷');
+        
+        // Dependency-based Topological Sort
+        const sortedIndices = [];
+        const visited = new Set();
+        const temporary = new Set();
+        
+        const selectedSet = new Set(selectedIndices);
+        const fullNameToIndex = {};
+        syncItems.forEach((item, idx) => {
+            fullNameToIndex[item.sourceObject.fullName.toLowerCase()] = idx;
+        });
+
+        // Sort selected indices by type first to provide a stable base order
+        selectedIndices.sort((a, b) => syncItems[a].sourceObject.type - syncItems[b].sourceObject.type);
+
+        function visit(idx) {
+            if (temporary.has(idx)) {
+                return;
+            }
+            if (!visited.has(idx)) {
+                temporary.add(idx);
+                
+                const item = syncItems[idx];
+                if (item.dependencies) {
+                    item.dependencies.forEach(depFullName => {
+                        const depIdx = fullNameToIndex[depFullName.toLowerCase()];
+                        if (depIdx !== undefined && selectedSet.has(depIdx)) {
+                            visit(depIdx);
+                        }
+                    });
+                }
+                
+                temporary.delete(idx);
+                visited.add(idx);
+                sortedIndices.push(idx);
+            }
+        }
+
+        selectedIndices.forEach(idx => {
+            if (!visited.has(idx)) {
+                visit(idx);
+            }
+        });
+
+        // Split into phases:
+        // Phase -1: Sequences (must be before tables)
+        // Phase 0: Types (must be before tables)
+        // Phase 1: Tables (Structure)
+        // Phase 2: Tables (Data)
+        // Phase 2.1: All others (Views, Procs, Funcs) in dependency order
+        // Phase 3: Tables (Indexes)
+        // Phase 4: Tables (Foreign Keys)
+        
+        const sequenceIndices = sortedIndices.filter(idx => syncItems[idx].sourceObject.type === 2); // 2 is Sequence
+        const typeIndices = sortedIndices.filter(idx => syncItems[idx].sourceObject.type === 0 || syncItems[idx].sourceObject.type === 1); // 0: UDT, 1: UDTTable
+        const tableIndices = sortedIndices.filter(idx => syncItems[idx].sourceObject.type === 3); // 3 is Table
+        const otherIndices = sortedIndices.filter(idx => syncItems[idx].sourceObject.type > 3); // Views, Procs, Funcs
+
+        // Define execution queue
+        const queue = [];
+        
+        // Phase -1: Sequences
+        sequenceIndices.forEach(idx => queue.push({ index: idx, phase: 1, label: '建立序列中...', finalLabel: '已建立' }));
+
+        // Phase 0: Types
+        typeIndices.forEach(idx => queue.push({ index: idx, phase: 1, label: '建立類型中...', finalLabel: '已建立' }));
+
+        // Phase 1: Tables Structure
+        tableIndices.forEach(idx => queue.push({ index: idx, phase: 1, label: '建立結構中...', finalLabel: '已建立結構' }));
+        
+        // Phase 2: Tables Data
+        tableIndices.forEach(idx => queue.push({ index: idx, phase: 2, label: '複製資料中...', finalLabel: '已複製資料' }));
+        
+        // Phase 2.1: Others (Topological order)
+        otherIndices.forEach(idx => queue.push({ index: idx, phase: 1, label: '同步中...', finalLabel: '成功' }));
+        
+        // Phase 3: Tables Indexes
+        tableIndices.forEach(idx => queue.push({ index: idx, phase: 3, label: '建立索引中...', finalLabel: '已建立索引' }));
+
+        // Phase 4: Tables Foreign Keys
+        tableIndices.forEach(idx => queue.push({ index: idx, phase: 4, label: '建立外鍵中...', finalLabel: '已建立外鍵' }));
+
+        let completedTasks = 0;
+        const totalTasks = queue.length;
+
+        $('#syncProgressWrapper').removeClass('d-none');
+        $('#syncProgressBar')
+            .css('width', '0%').attr('aria-valuenow', 0)
+            .removeClass('bg-success bg-warning bg-danger')
+            .addClass('bg-primary progress-bar-striped progress-bar-animated');
+        updateSyncProgress(0, totalTasks);
+
+        let currentProcessLabel = '';
+
+        for (const task of queue) {
+            if (stopRequested) {
+                break;
+            }
+
+            const index = task.index;
+            const item = syncItems[index];
+            const $row = $(`#sync-row-${index}`);
+            const $statusCell = $row.find('.status-cell');
+            const $checkbox = $row.find('.sync-check');
+
+
+            $row.addClass('table-active');
+            $statusCell.html(`<div class="spinner-border spinner-border-sm text-primary"></div> ${task.label}`);
+
+            // Compute once, before try/catch
+            const isLastTask = queue.filter(t => t.index === index).pop() === task;
+
+            try {
+                const response = await fetch('/api/db/copy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        source,
+                        target,
+                        object: item.sourceObject,
+                        phase: task.phase,
+                        batchSize: batchSize
+                    })
+                });
+
+                if (response.ok) {
+                    if (isLastTask) {
+                        item.status = 'Success';
+                        item.message = 'Synced';
+                        $row.removeClass('table-active').addClass('table-success');
+                        
+                        let targetCountDisplay = "";
+                        if (item.sourceObject.type === 3) { // Table
+                            // 同步成功後目的端筆數應等於來源，更新 targetRowCount 讓後續重繪正確
+                            item.targetRowCount = item.sourceRowCount;
+                            const tgtCount = item.sourceRowCount !== null ? item.sourceRowCount : '0';
+                            targetCountDisplay = `<span class="ms-2 smaller text-muted">(目的: ${tgtCount})</span>`;
+                            // 更新所有 index 子行的目的狀態，並同步記憶體中的狀態供重繪使用
+                            item.sourceObject.indexes.forEach(idx => idx.existsInDestination = true);
+                            $(`tr.index-row[data-table-idx="${index}"] td:nth-child(5)`).html(
+                                '<span class="text-success small"><i class="bi bi-check me-1"></i>已同步</span>'
+                            );
+                        }
+
+                        $statusCell.html(`<span class="text-success"><i class="bi bi-check-circle-fill"></i> 成功</span>${targetCountDisplay}`);
+                        $checkbox.prop('checked', false).prop('disabled', true);
+                    } else {
+                        // Just update the status cell with intermediate success
+                        $statusCell.html(`<span class="text-info small"><i class="bi bi-info-circle"></i> ${task.label} ${task.finalLabel}</span>`);
+                    }
+                } else {
+                    const errorMsg = await response.text();
+                    item.status = 'Error';
+                    item.message = errorMsg;
+                    $row.removeClass('table-active').addClass('table-danger');
+                    $statusCell.html(`
+                        <div class="d-flex align-items-center">
+                            <span class="text-danger me-2"><i class="bi bi-x-circle-fill"></i> 錯誤</span>
+                            <button class="btn btn-xs btn-outline-danger py-0 px-1 rounded-pill" onclick="showErrorMessage(${index})" title="查看錯誤訊息">
+                                <i class="bi bi-info-circle"></i>
+                            </button>
+                        </div>
+                    `);
+                    
+                    // Stop entire sync if a critical object fails
+                    // REMOVED: break; so it can continue with other objects
+                }
+            } catch (err) {
+                item.status = 'Error';
+                item.message = err.message;
+                $row.removeClass('table-active').addClass('table-danger');
+                $statusCell.html(`
+                    <div class="d-flex align-items-center">
+                        <span class="text-danger me-2"><i class="bi bi-x-circle-fill"></i> 網路錯誤</span>
+                        <button class="btn btn-xs btn-outline-danger py-0 px-1 rounded-pill" onclick="showErrorMessage(${index})" title="查看錯誤訊息">
+                            <i class="bi bi-info-circle"></i>
+                        </button>
+                    </div>
+                `);
+            }
+
+            completedTasks++;
+            updateSyncProgress(completedTasks, totalTasks);
+        }
+
+        isSyncing = false;
+
+        const succeeded = selectedIndices.filter(idx => syncItems[idx].status === 'Success').length;
+        const failed    = selectedIndices.filter(idx => syncItems[idx].status === 'Error').length;
+
+        // Finalise bar appearance
+        $('#syncProgressBar').removeClass('progress-bar-striped progress-bar-animated');
+        if (stopRequested || failed > 0) {
+            $('#syncProgressBar').removeClass('bg-primary').addClass(failed > 0 ? 'bg-danger' : 'bg-warning');
+        } else {
+            $('#syncProgressBar').removeClass('bg-primary').addClass('bg-success');
+        }
+
+        if (stopRequested) {
+            showSyncResultBanner('warning',
+                `<i class="bi bi-stop-circle-fill me-2"></i> 同步已中斷。成功: <strong>${succeeded}</strong> 個，錯誤: <strong>${failed}</strong> 個。`);
+        } else if (failed === 0) {
+            showSyncResultBanner('success',
+                `<i class="bi bi-check-circle-fill me-2"></i> 同步完成！共 <strong>${succeeded}</strong> 個物件同步成功。`);
+        } else {
+            showSyncResultBanner('danger',
+                `<i class="bi bi-exclamation-triangle-fill me-2"></i> 同步完成。成功: <strong>${succeeded}</strong> 個，錯誤: <strong>${failed}</strong> 個，請查看錯誤詳情。`);
+        }
+
+        $('#syncSelectedBtn').prop('disabled', false).removeClass('d-none').html('<i class="bi bi-arrow-repeat me-1"></i> 同步選取項目');
+        $('#stopSyncBtn').addClass('d-none');
+    });
+
+    $('#filterObjectType, #filterTargetStatus, #filterSyncStatus').change(function() {
+        renderMatrixUI();
+    });
+
+    $(document).ready(function() {
+        loadConnections();
+        $('#importConnectionsInput').on('change', handleImportConnectionsFile);
+        $('#syncResultBanner').on('closed.bs.alert', function() {
+            $('#syncProgressWrapper').addClass('d-none');
+        });
+    });
+</script>
+}
